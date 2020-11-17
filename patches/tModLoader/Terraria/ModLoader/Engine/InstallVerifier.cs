@@ -131,6 +131,12 @@ namespace Terraria.ModLoader.Engine
 				string checkExe = Path.Combine(vanillaPath, CheckExe);
 				vanillaPath = File.Exists(defaultExe) ? defaultExe : checkExe;
 			}
+			// If .exe not present check parent directory (Nested Manual Install)
+			if (!File.Exists(vanillaPath)) {
+				string defaultExe = Path.Combine("..", DefaultExe);
+				string checkExe = Path.Combine("..", CheckExe);
+				vanillaPath = File.Exists(defaultExe) ? defaultExe : checkExe;
+			}
 
 			if (!File.Exists(vanillaPath)) {
 #if SERVER
