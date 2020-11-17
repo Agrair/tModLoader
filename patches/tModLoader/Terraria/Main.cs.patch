@@ -379,15 +379,18 @@
  			PlayerInput.Load();
  			if (currentValue < 165) {
  				try {
-@@ -3496,7 +_,7 @@
+@@ -3496,8 +_,10 @@
  			mouseColorSlider.SetHSL(mouseColor);
  			mouseBorderColorSlider.SetHSL(MouseBorderColor);
  			mouseBorderColorSlider.Alpha = (float)(int)MouseBorderColor.A / 255f;
 -			if (currentValue != 234)
-+			if (currentValue != 234 || ModLoader.ModLoader.LastLaunchedTModLoaderVersion != ModLoader.ModLoader.version)
++			if (currentValue != 234 || ModLoader.ModLoader.LastLaunchedTModLoaderVersion != ModLoader.ModLoader.version) {
++				ModLoader.ModLoader.MigrateSettings();
  				SaveSettings();
++			}
  		}
  
+ 		protected void OpenLegacySettings() {
 @@ -3622,9 +_,11 @@
  				FileUtilities.Delete(PlayerList[i].Path, PlayerList[i].IsCloudSave);
  				FileUtilities.Delete(PlayerList[i].Path + ".bak", PlayerList[i].IsCloudSave);
@@ -749,7 +752,7 @@
  		}
  
  		public Main() {
-@@ -4761,7 +_,43 @@
+@@ -4761,7 +_,45 @@
  #if CLIENT
  			Configuration.Load();
  			graphics = new GraphicsDeviceManager(this as Game);
@@ -767,7 +770,9 @@
 +			if (!Directory.Exists(vanillaContentFolder)) {
 +				vanillaContentFolder = "../Content"; // Nested Manual Install
 +			}
-+
++#if MAC
++			vanillaContentFolder = ../../../Terraria.app/Contents/Resources/Content";
++#endif
 +			if (SocialAPI.Mode == SocialMode.Steam && SteamAPI.Init()) {
 +				var appID = ModLoader.Engine.Steam.TerrariaAppId_t;
 +				bool appInstalled = SteamApps.BIsAppInstalled(appID);
@@ -817,7 +822,7 @@
  			}
  
  			for (int n = 0; n < 1001; n++) {
-@@ -8313,6 +_,8 @@
+@@ -8313,10 +_,17 @@
  			AssetInitializer.LoadSplashAssets(asyncLoadForSounds: true);
  			ChromaInitializer.Load();
  			_gameContentLoadProcess = LoadContent_Deferred();
@@ -826,6 +831,15 @@
  		}
  
  		private void LoadContent_TryEnteringHiDef() {
+ 			Configuration.Load();
++
++			// This reverts a potentially bad setting change. (Didn't work where it was before)
++			if (new System.Version(Configuration.Get("LastLaunchedTModLoaderVersion", "0.0")) <= new System.Version(0, 11, 7, 5))
++				Main.Configuration.Put("Support4K", true);
++
+ 			Configuration.Get("UseExperimentalFeatures", ref UseExperimentalFeatures);
+ 			Configuration.Get("Support4K", ref Support4K);
+ #if FNA
 @@ -8380,6 +_,8 @@
  			numClouds = rand.Next(200);
  			Mount.Initialize();

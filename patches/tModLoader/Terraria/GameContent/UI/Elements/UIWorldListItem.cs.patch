@@ -57,7 +57,7 @@
  		}
  
  		private void InitializeAppearance() {
-@@ -168,8 +_,16 @@
+@@ -168,12 +_,21 @@
  		private void CloudMouseOver(UIMouseEvent evt, UIElement listeningElement) {
  			if (_data.IsCloudSave)
  				_buttonLabel.SetText(Language.GetTextValue("UI.MoveOffCloud"));
@@ -76,6 +76,12 @@
  		}
  
  		private void PlayMouseOver(UIMouseEvent evt, UIElement listeningElement) {
++			if (_data.IsValid)
+-			_buttonLabel.SetText(Language.GetTextValue("UI.Play"));
++				_buttonLabel.SetText(Language.GetTextValue("UI.Play"));
+ 		}
+ 
+ 		private void SeedMouseOver(UIMouseEvent evt, UIElement listeningElement) {
 @@ -198,8 +_,12 @@
  		private void CloudButtonClick(UIMouseEvent evt, UIElement listeningElement) {
  			if (_data.IsCloudSave)

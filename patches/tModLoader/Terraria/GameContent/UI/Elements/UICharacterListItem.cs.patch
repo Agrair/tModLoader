@@ -116,7 +116,7 @@
  			_deleteButtonLabel.Top.Set(-3f, 0f);
  			Append(_deleteButtonLabel);
  			uIImageButton.SetSnapPoint("Play", snapPointIndex);
-@@ -111,8 +_,12 @@
+@@ -111,12 +_,17 @@
  		private void CloudMouseOver(UIMouseEvent evt, UIElement listeningElement) {
  			if (_data.IsCloudSave)
  				_buttonLabel.SetText(Language.GetTextValue("UI.MoveOffCloud"));
@@ -131,6 +131,12 @@
  		}
  
  		private void PlayMouseOver(UIMouseEvent evt, UIElement listeningElement) {
++			if (_data.Player.loadStatus == 0)
+-			_buttonLabel.SetText(Language.GetTextValue("UI.Play"));
++				_buttonLabel.SetText(Language.GetTextValue("UI.Play"));
+ 		}
+ 
+ 		private void DeleteMouseOver(UIMouseEvent evt, UIElement listeningElement) {
 @@ -126,6 +_,14 @@
  				_deleteButtonLabel.SetText(Language.GetTextValue("UI.Delete"));
  		}

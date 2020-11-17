@@ -390,6 +390,7 @@ namespace Terraria.ModLoader
 			Main.Configuration.Get("AvoidGithub", ref UI.ModBrowser.UIModBrowser.AvoidGithub);
 			Main.Configuration.Get("AvoidImgur", ref UI.ModBrowser.UIModBrowser.AvoidImgur);
 			Main.Configuration.Get(nameof(UI.ModBrowser.UIModBrowser.EarlyAutoUpdate), ref UI.ModBrowser.UIModBrowser.EarlyAutoUpdate);
+			LastLaunchedTModLoaderVersion = new Version(Main.Configuration.Get("LastLaunchedTModLoaderVersion", "0.0"));
 			Main.Configuration.Get("ShowModMenuNotifications", ref notifyNewMainMenuThemes);
 			Main.Configuration.Get("LastSelectedModMenu", ref MenuLoader.LastSelectedModMenu);
 			Main.Configuration.Get("KnownMenuThemes", ref MenuLoader.KnownMenuSaveString);
@@ -397,12 +398,8 @@ namespace Terraria.ModLoader
 
 		internal static void MigrateSettings()
 		{
-			if (LastLaunchedTModLoaderVersion != null) return;
-
-			LastLaunchedTModLoaderVersion = new Version(Main.Configuration.Get("LastLaunchedTModLoaderVersion", "0.0"));
-			if (LastLaunchedTModLoaderVersion <= new Version(0, 11, 4))
-				Main.Configuration.Put("Support4K", true); // This reverts a potentially bad setting change. 
-														   // Subsequent migrations here.
+			if (LastLaunchedTModLoaderVersion < new Version(0, 11, 7, 5))
+				showMemoryEstimates = true;
 			/*
 			if (LastLaunchedTModLoaderVersion < version)
 				ShowWhatsNew = true;
