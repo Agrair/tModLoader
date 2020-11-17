@@ -45,6 +45,7 @@ namespace Terraria.ModLoader.Core
 		private class BuildingMod : LocalMod
 		{
 			public string path;
+			public List<LocalMod> refMods;
 
 			public BuildingMod(TmodFile modFile, BuildProperties properties, string path) : base(modFile, properties)
 			{
@@ -226,15 +227,15 @@ namespace Terraria.ModLoader.Core
 			}
 
 			// this will extract all the embedded dlls, and grab a reference to the GAC assemblies
-			var libs = GetTerrariaReferences(null, PlatformUtilities.IsXNA).ToList();
+			var libs = GetTerrariaReferenceLazy(null, PlatformUtilities.IsXNA);
 
 			// delete any extra references that no-longer exist
 			foreach (string file in Directory.GetFiles(modReferencesPath, "*.dll"))
-				if (!libs.Any(lib => Path.GetFileName(lib) == Path.GetFileName(file)))
+				if (!libs.ContainsKey(Path.GetFileName(file)))
 					File.Delete(file);
 
 			// replace tML lib with inferred paths based on names 
-			libs.RemoveAt(0);
+			libs.Remove("Terraria.exe");
 
 			string tMLDir = Path.GetDirectoryName(tMLPath);
 
@@ -268,7 +269,7 @@ namespace Terraria.ModLoader.Core
 				return $"    <Reference Include=\"{System.Security.SecurityElement.Escape(name)}\">\n      <HintPath>{System.Security.SecurityElement.Escape(path)}</HintPath>\n    </Reference>";
 			}
 
-			var referencesXMLList = libs.Select(p => MakeRef(p)).ToList();
+			var referencesXMLList = libs.Values.Select(path => MakeRef(path.Value)).ToList();
 
 			referencesXMLList.Insert(0, MakeRef("$(tMLPath)", "Terraria"));
 
@@ -400,9 +401,9 @@ namespace Terraria.ModLoader.Core
 			try {
 				status.SetStatus(Language.GetTextValue("tModLoader.Building", mod.Name));
 
-				List<LocalMod> refMods = null;
-				BuildModForPlatform(mod, ref refMods, true);
-				BuildModForPlatform(mod, ref refMods, false);
+				mod.refMods = FindReferencedMods(mod.properties);
+				BuildModForPlatform(mod, true);
+				BuildModForPlatform(mod, false);
 
 				if (Program.LaunchParameters.TryGetValue("-eac", out var eacValue)) {
 					mod.properties.eacPath = Path.ChangeExtension(eacValue, "pdb");
@@ -533,7 +534,7 @@ namespace Terraria.ModLoader.Core
 		}
 
 		private string tempDir = Path.Combine(ModLoader.ModPath, "compile_temp");
-		private void BuildModForPlatform(BuildingMod mod, ref List<LocalMod> refMods, bool xna)
+		private void BuildModForPlatform(BuildingMod mod, bool xna)
 		{
 			status.SetProgress(xna ? 0 : 1, 2);
 			try {
@@ -553,6 +554,8 @@ namespace Terraria.ModLoader.Core
 					dllPath = eacValue;
 				}
 
+				var refs = GetReferencesLazy(mod, xna);
+
 				// precompiled load, or fallback to Roslyn compile
 				if (File.Exists(dllPath))
 					status.SetStatus(Language.GetTextValue("tModLoader.LoadingPrecompiled", dllName, Path.GetFileName(dllPath)));
@@ -560,16 +563,14 @@ namespace Terraria.ModLoader.Core
 					throw new BuildException(Language.GetTextValue("tModLoader.BuildErrorLoadingPrecompiled", dllPath));
 				else {
 					dllPath = Path.Combine(tempDir, dllName);
-					CompileMod(mod, dllPath, ref refMods, xna);
+					CompileMod(mod, dllPath, refs, xna);
 				}
 
 				// add mod assembly to file
 				mod.modFile.AddFile(dllName, File.ReadAllBytes(dllPath));
 
 				// read mod assembly using cecil for verification and pdb processing
-				using (var asmResolver = new BuildAssemblyResolver(xna)) {
-					asmResolver.AddSearchDirectory(Path.GetDirectoryName(dllPath));
-
+				using (var asmResolver = new BuildAssemblyResolver(Path.GetDirectoryName(dllPath), refs)) {
 					var asm = AssemblyDefinition.ReadAssembly(dllPath, new ReaderParameters { InMemory = true, ReadSymbols = mod.properties.includePDB, AssemblyResolver = asmResolver });
 					VerifyModAssembly(mod.Name, asm);
 
@@ -612,44 +613,58 @@ namespace Terraria.ModLoader.Core
 			}
 		}
 
-		private void CompileMod(BuildingMod mod, string outputPath, ref List<LocalMod> refMods, bool xna)
+		// Provide a map of dll names (including .dll suffix) to paths on disk
+		// Paths on disk are lazy as the file may need extracting on demand
+		// Mod compiling will extract all paths to pass to Roslyn, but cecil post-processing only needs some assemblies
+		// This lets authors using no-compile prioritise dlls from the compiled dll dir, and sidestep weird dependency issues
+		private IDictionary<string, Lazy<string>> GetReferencesLazy(BuildingMod mod, bool xna)
 		{
+			var refs = new Dictionary<string, Lazy<string>>();
+			void AddFile(string path) => refs[Path.GetFileName(path)] = new Lazy<string>(() => path);
+
+			//everything used to compile the tModLoader for the target platform
+			foreach (var entry in GetTerrariaReferenceLazy(tempDir, xna))
+				refs.Add(entry.Key, entry.Value);
+
+			// add framework assemblies
+			if (ReferenceAssembliesCheck(out _)) {
+				foreach (var path in Directory.GetFiles(referenceAssembliesPath, "*.dll", SearchOption.AllDirectories).Where(path => !path.EndsWith("Thunk.dll") && !path.EndsWith("Wrapper.dll")))
+					AddFile(path);
+			}
+
+			//libs added by the mod
+			foreach (var path in mod.properties.dllReferences.Select(dllName => DllRefPath(mod, dllName, xna)))
+				AddFile(path);
+
+			//all dlls included in all referenced mods
+			foreach (var refMod in mod.refMods) {
+				void AddModEntry(string dllName, Func<byte[]> getBytes) {
+					refs[dllName] = new Lazy<string>(() => {
+						using (refMod.modFile.Open()) {
+							var path = Path.Combine(tempDir, dllName);
+							File.WriteAllBytes(path, getBytes());
+							return path;
+						}
+					});
+				}
+
+				var mainDll = $"{refMod.Name}.dll";
+				AddModEntry(mainDll, () => refMod.modFile.GetModAssembly(xna));
+
+				foreach (var dllName in refMod.properties.dllReferences) {
+					AddModEntry($"{dllName}.dll", () => refMod.modFile.GetLibraryDll(dllName, xna));
+				}
+			}
+
+			return refs;
+		}
+		private void CompileMod(BuildingMod mod, string outputPath, IDictionary<string, Lazy<string>> refs, bool xna) {
 			UpdateReferencesFolder();
 
 			status.SetStatus(Language.GetTextValue("tModLoader.Compiling", Path.GetFileName(outputPath)));
 			if (!DeveloperModeReady(out string msg))
 				throw new BuildException(msg);
-
-			if (refMods == null)
-				refMods = FindReferencedMods(mod.properties);
-
-			var refs = new List<string>();
-
-			//everything used to compile the tModLoader for the target platform
-			refs.AddRange(GetTerrariaReferences(tempDir, xna));
-
-			// add framework assemblies
-			refs.AddRange(Directory.GetFiles(referenceAssembliesPath, "*.dll", SearchOption.AllDirectories)
-				.Where(path => !path.EndsWith("Thunk.dll") && !path.EndsWith("Wrapper.dll")));
-
-			//libs added by the mod
-			refs.AddRange(mod.properties.dllReferences.Select(dllName => DllRefPath(mod, dllName, xna)));
-
-			//all dlls included in all referenced mods
-			foreach (var refMod in refMods) {
-				using (refMod.modFile.Open()) {
-					var path = Path.Combine(tempDir, refMod + ".dll");
-					File.WriteAllBytes(path, refMod.modFile.GetModAssembly(xna));
-					refs.Add(path);
-
-					foreach (var refDll in refMod.properties.dllReferences) {
-						path = Path.Combine(tempDir, refDll + ".dll");
-						File.WriteAllBytes(path, refMod.modFile.GetBytes("lib/" + refDll + ".dll"));
-						refs.Add(path);
-					}
-				}
-			}
-
+			
 			var files = Directory.GetFiles(mod.path, "*.cs", SearchOption.AllDirectories).Where(file => !IgnoreCompletely(mod, file)).ToArray();
 
 			bool allowUnsafe =
@@ -661,7 +676,8 @@ namespace Terraria.ModLoader.Core
 				preprocessorSymbols.AddRange(defineParam.Split(';', ' '));
 			preprocessorSymbols.RemoveAll(string.IsNullOrWhiteSpace);
 
-			var results = RoslynCompile(mod.Name, outputPath, refs.ToArray(), files, preprocessorSymbols.ToArray(), mod.properties.includePDB, allowUnsafe);
+			var refPaths = refs.Select(entry => entry.Value.Value).ToArray();
+			var results = RoslynCompile(mod.Name, outputPath, refPaths, files, preprocessorSymbols.ToArray(), mod.properties.includePDB, allowUnsafe);
 
 			int numWarnings = results.Cast<CompilerError>().Count(e => e.IsWarning);
 			int numErrors = results.Count - numWarnings;
@@ -701,49 +717,46 @@ namespace Terraria.ModLoader.Core
 			throw new BuildException("Missing dll reference: " + path);
 		}
 
-		private static string GetTerrariaReference(bool xna)
+		private static IDictionary<string, Lazy<string>> GetTerrariaReferenceLazy(string tempDir, bool xna)
 		{
-			if (xna == PlatformUtilities.IsXNA)
-				return Assembly.GetExecutingAssembly().Location;
+			var refs = new Dictionary<string, Lazy<string>>();
+			void AddFile(string path) => refs[Path.GetFileName(path)] = new Lazy<string>(() => path);
+			void AddFiles(IEnumerable<string> paths) {
+				foreach (var path in paths)
+					AddFile(path);
+			}
+			void AddStream(string fileName, string dir, Func<Stream> getStream) {
+				refs[fileName] = new Lazy<string>(() => {
+					var path = Path.Combine(dir, fileName);
+					using (Stream s = getStream(), file = File.Create(path))
+						s.CopyTo(file);
 
-			return Path.Combine(modCompileDir, xna ? "tModLoader.XNA.exe" : "tModLoader.FNA.exe");
-		}
-
-		private static IEnumerable<string> GetTerrariaReferences(string tempDir, bool xna) {
-			var refs = new List<string> {
-				GetTerrariaReference(xna)
-			};
+					return path;
+				});
+			}
 
 			if (xna == PlatformUtilities.IsXNA) {
 				var executingAssembly = Assembly.GetExecutingAssembly();
+				refs["Terraria.exe"] = new Lazy<string>(() => executingAssembly.Location);
 
 				// avoid a double extract of the embedded dlls
 				if (referencesUpdated) {
-					refs.AddRange(Directory.GetFiles(modReferencesPath, "*.dll"));
+					AddFiles(Directory.GetFiles(modReferencesPath, "*.dll"));
 					return refs;
 				}
 
 				//extract embedded resource dlls to the references path rather than the tempDir
 				foreach (string resName in executingAssembly.GetManifestResourceNames().Where(n => n.EndsWith(".dll"))) {
-					string path = Path.Combine(modReferencesPath, Path.GetFileName(resName));
-
-					using (Stream res = executingAssembly.GetManifestResourceStream(resName), file = File.Create(path))
-						res.CopyTo(file);
-
-					refs.Add(path);
+					AddStream(Path.GetFileName(resName), modReferencesPath, () => executingAssembly.GetManifestResourceStream(resName));
 				}
 			}
 			else {
+				var tMLPath = Path.Combine(modCompileDir, xna ? "tModLoader.XNA.exe" : "tModLoader.FNA.exe");
+				refs["Terraria.exe"] = new Lazy<string>(() => tMLPath);
+
 				//extract embedded resource dlls to a temporary folder
-				var terrariaModule = AssemblyDefinition.ReadAssembly(refs[0]).MainModule;
-
-				foreach (var res in terrariaModule.Resources.OfType<EmbeddedResource>().Where(res => res.Name.EndsWith(".dll"))) {
-					string path = Path.Combine(tempDir, Path.GetFileName(res.Name));
-
-					using (Stream s = res.GetResourceStream(), file = File.Create(path))
-						s.CopyTo(file);
-
-					refs.Add(path);
+				foreach (var res in ModuleDefinition.ReadModule(tMLPath).Resources.OfType<EmbeddedResource>().Where(res => res.Name.EndsWith(".dll"))) {
+					AddStream(Path.GetFileName(res.Name), tempDir, res.GetResourceStream);
 				}
 			}
 
@@ -791,27 +804,50 @@ namespace Terraria.ModLoader.Core
 			}
 		}
 
-		// Workaround for #896
-		// really we should bring all the references here, but that's likely to defeat half the point of no-compile
+		// When building pdbs and mdbs using cecil, reference dlls will occasionally be requested to help with reading and writing.
+		// This normally happens when using a constant value from another dll in a default value for a method parameter.
+		// Fixes #896, #785
 		// when we move to .NET Core we shouldn't need to generate pdbs/mdbs with cecil anymore, so this won't be necessary
-		private class BuildAssemblyResolver : DefaultAssemblyResolver
+		private class BuildAssemblyResolver : IAssemblyResolver
 		{
-			private readonly AssemblyNameReference tMLAssemblyName;
+			private readonly IDictionary<string, AssemblyDefinition> cache = new Dictionary<string, AssemblyDefinition>(StringComparer.Ordinal);
+			private readonly IDictionary<string, Lazy<string>> refs;
+			private readonly string buildDir;
 
-			public BuildAssemblyResolver(bool xna)
-			{
-				var tMLAssembly = AssemblyDefinition.ReadAssembly(GetTerrariaReference(xna));
-				RegisterAssembly(tMLAssembly);
-				tMLAssemblyName = tMLAssembly.Name;;
+			public BuildAssemblyResolver(string buildDir, IDictionary<string, Lazy<string>> refs) {
+				this.buildDir = buildDir;
+				this.refs = refs;
 			}
 
-			public override AssemblyDefinition Resolve(AssemblyNameReference name)
-			{
-				if (name.Name == "Terraria")
-					name = tMLAssemblyName;
+			public AssemblyDefinition Resolve(AssemblyNameReference name) => Resolve(name, new ReaderParameters());
 
-				return base.Resolve(name);
+			public AssemblyDefinition Resolve(AssemblyNameReference name, ReaderParameters parameters)
+			{
+				if (cache.TryGetValue(name.Name, out var asmDef))
+					return asmDef;
+
+				// build dir first, it's a better source of truth for VS/no-compile
+				if (FindRefInBuildDir(name.Name, out var path))
+					return cache[name.Name] = AssemblyDefinition.ReadAssembly(path, parameters);
+
+				if (refs.TryGetValue(name.Name + ".dll", out var pathLazy) || refs.TryGetValue(name.Name + ".exe", out pathLazy))
+					return cache[name.Name] = AssemblyDefinition.ReadAssembly(pathLazy.Value, parameters);
+
+				throw new AssemblyResolutionException(name);
 			}
+
+			private bool FindRefInBuildDir(string name, out string path)
+			{
+				path = Path.Combine(buildDir, name + ".dll");
+				if (File.Exists(path))
+					return true;
+
+				path = Path.Combine(buildDir, name + ".exe");
+				return File.Exists(path);
+			}
+
+			public void Dispose()
+			{ }
 		}
 	}
 }
