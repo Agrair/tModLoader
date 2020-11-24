@@ -276,7 +276,7 @@ namespace Terraria.ModLoader
 		}
 
 		/// <summary>
-		/// This hook is called before every time the player takes damage. The pvp parameter is whether the damage was from another player. The quiet parameter determines whether the damage will be communicated to the server. The damage, hitDirection, and crit parameters can be modified. Set the customDamage parameter to true if you want to use your own damage formula (this parameter will disable automatically subtracting the player's defense from the damage). Set the playSound parameter to false to disable the player's hurt sound, and the genGore parameter to false to disable the dust particles that spawn. (These are useful for creating your own sound or gore.) The deathText parameter can be modified to change the player's death message if the player dies. Return false to stop the player from taking damage. Returns true by default.
+		/// See documentation for PreHurt. Return false to stop the player from taking damage. Returns true by default.
 		/// </summary>
 		/// <param name="pvp"></param>
 		/// <param name="quiet"></param>
@@ -288,9 +288,26 @@ namespace Terraria.ModLoader
 		/// <param name="genGore"></param>
 		/// <param name="damageSource"></param>
 		/// <returns></returns>
-		public virtual bool PreHurt(bool pvp, bool quiet, ref int damage, ref int hitDirection, ref bool crit,
-			ref bool customDamage, ref bool playSound, ref bool genGore, ref PlayerDeathReason damageSource) {
+		public virtual bool CanHurt(bool pvp, bool quiet, int damage, int hitDirection, bool crit,
+			PlayerDeathReason damageSource) {
 			return true;
+		}
+
+		/// <summary>
+		/// This hook is called before every time the player takes damage. The pvp parameter is whether the damage was from another player. The quiet parameter determines whether the damage will be communicated to the server. The damage, hitDirection, and crit parameters can be modified. Set the customDamage parameter to true if you want to use your own damage formula (this parameter will disable automatically subtracting the player's defense from the damage). Set the playSound parameter to false to disable the player's hurt sound, and the genGore parameter to false to disable the dust particles that spawn. (These are useful for creating your own sound or gore.) The damageSource parameter can be modified to change the player's death message if the player dies.
+		/// </summary>
+		/// <param name="pvp"></param>
+		/// <param name="quiet"></param>
+		/// <param name="damage"></param>
+		/// <param name="hitDirection"></param>
+		/// <param name="crit"></param>
+		/// <param name="customDamage"></param>
+		/// <param name="playSound"></param>
+		/// <param name="genGore"></param>
+		/// <param name="damageSource"></param>
+		/// <returns></returns>
+		public virtual void PreHurt(bool pvp, bool quiet, ref int damage, ref int hitDirection, ref bool crit,
+			ref bool customDamage, ref bool playSound, ref bool genGore, ref PlayerDeathReason damageSource) {
 		}
 
 		/// <summary>
@@ -316,7 +333,7 @@ namespace Terraria.ModLoader
 		}
 
 		/// <summary>
-		/// This hook is called whenever the player is about to be killed after reaching 0 health. Set the playSound parameter to false to stop the death sound from playing. Set the genGore parameter to false to stop the gore and dust from being created. (These are useful for creating your own sound or gore.) Return false to stop the player from being killed. Only return false if you know what you are doing! Returns true by default.
+		/// See documentation for PreKill. Return false to stop the player from being killed. Only return false if you know what you are doing! Returns true by default.
 		/// </summary>
 		/// <param name="damage"></param>
 		/// <param name="hitDirection"></param>
@@ -325,9 +342,22 @@ namespace Terraria.ModLoader
 		/// <param name="genGore"></param>
 		/// <param name="damageSource"></param>
 		/// <returns></returns>
-		public virtual bool PreKill(double damage, int hitDirection, bool pvp, ref bool playSound, ref bool genGore,
-			ref PlayerDeathReason damageSource) {
+		public virtual bool CanKill(double damage, int hitDirection, bool pvp, PlayerDeathReason damageSource) {
 			return true;
+		}
+
+		/// <summary>
+		/// This hook is called whenever the player is about to be killed after reaching 0 health. Set the playSound parameter to false to stop the death sound from playing. Set the genGore parameter to false to stop the gore and dust from being created. (These are useful for creating your own sound or gore).
+		/// </summary>
+		/// <param name="damage"></param>
+		/// <param name="hitDirection"></param>
+		/// <param name="pvp"></param>
+		/// <param name="playSound"></param>
+		/// <param name="genGore"></param>
+		/// <param name="damageSource"></param>
+		/// <returns></returns>
+		public virtual void PreKill(double damage, int hitDirection, bool pvp, ref bool playSound, ref bool genGore,
+			ref PlayerDeathReason damageSource) {
 		}
 
 		/// <summary>
@@ -341,11 +371,18 @@ namespace Terraria.ModLoader
 		}
 
 		/// <summary>
-		/// Allows you to do anything before the update code for the player's held item is run. Return false to stop the held item update code from being run (for example, if the player is frozen). Returns true by default.
+		/// See documentation for PreItemCheck.  Return false to stop the held item update code from being run (for example, if the player is frozen).
 		/// </summary>
 		/// <returns></returns>
-		public virtual bool PreItemCheck() {
+		public virtual bool CanHoldItem() {
 			return true;
+		}
+
+		/// <summary>
+		/// Allows you to do anything before the update code for the player's held item is run.
+		/// </summary>
+		/// <returns></returns>
+		public virtual void PreItemCheck() {
 		}
 
 		/// <summary>
@@ -874,17 +911,16 @@ namespace Terraria.ModLoader
 		/// </summary>
 		/// <param name="nurse">The Nurse npc providing the heal.</param>
 		/// <param name="health">How much health the player gained.</param>
-		/// /// <param name="removeDebuffs">Whether or not debuffs were healed.</param>
+		/// <param name="removeDebuffs">Whether or not debuffs were healed.</param>
 		/// <param name="price">The price the player paid in copper coins.</param>
 		public virtual void PostNurseHeal(NPC nurse, int health, bool removeDebuffs, int price) {
 		}
 
 		/// <summary>
-		/// Called when the player is created in the menu.
-		/// You can use this method to add items to the player's starting inventory, as well as their inventory when they respawn in mediumcore.
+		/// Called when the player is created in the menu. You can use this method to add items to the player's starting inventory, as well as their inventory when they respawn in mediumcore.
 		/// </summary>
-		/// <param name="mediumCoreDeath">Whether you are setting up a mediumcore player's inventory after their death.</param>
-		/// <returns>An enumerable of the items you want to add. If you want to add nothing, return Enumerable.Empty<Item>().</returns>
+		/// <param name="mediumCoreDeath">Whether you are setting up a mediumcore player's inventory after their death</param>
+		/// <returns>An enumerable of the items you want to add. If you want to add nothing, return <see cref="Enumerable.Empty{Item}"/> with TResult being item.</returns>
 		public virtual IEnumerable<Item> AddStartingItems(bool mediumCoreDeath) {
 			return Enumerable.Empty<Item>();
 		}

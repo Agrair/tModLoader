@@ -373,20 +373,26 @@ namespace Terraria.ModLoader
 			}
 		}
 
-		private delegate bool DelegatePreHurt(bool pvp, bool quiet, ref int damage, ref int hitDirection,
+		private delegate void DelegatePreHurt(bool pvp, bool quiet, ref int damage, ref int hitDirection,
 			ref bool crit, ref bool customDamage, ref bool playSound, ref bool genGore, ref PlayerDeathReason damageSource);
 		private static HookList HookPreHurt = AddHook<DelegatePreHurt>(p => p.PreHurt);
 
+		private static HookList HookCanHurt = AddHook<Func<bool, bool, int, int, bool, PlayerDeathReason, bool>>(p => p.CanHurt);
+
 		public static bool PreHurt(Player player, bool pvp, bool quiet, ref int damage, ref int hitDirection,
 			ref bool crit, ref bool customDamage, ref bool playSound, ref bool genGore, ref PlayerDeathReason damageSource) {
-			bool flag = true;
+
 			foreach (int index in HookPreHurt.arr) {
-				if (!player.modPlayers[index].PreHurt(pvp, quiet, ref damage, ref hitDirection, ref crit, ref customDamage,
-						ref playSound, ref genGore, ref damageSource)) {
-					flag = false;
-				}
+				player.modPlayers[index].PreHurt(pvp, quiet, ref damage, ref hitDirection, ref crit, ref customDamage,
+					ref playSound, ref genGore, ref damageSource);
 			}
-			return flag;
+
+			foreach (int index in HookCanHurt.arr) {
+				if (!player.modPlayers[index].CanHurt(pvp, quiet, damage, hitDirection, crit, damageSource))
+					return false;
+			}
+
+			return true;
 		}
 
 		private static HookList HookHurt = AddHook<Action<bool, bool, double, int, bool>>(p => p.Hurt);
@@ -405,19 +411,25 @@ namespace Terraria.ModLoader
 			}
 		}
 
-		private delegate bool DelegatePreKill(double damage, int hitDirection, bool pvp, ref bool playSound,
+		private delegate void DelegatePreKill(double damage, int hitDirection, bool pvp, ref bool playSound,
 			ref bool genGore, ref PlayerDeathReason damageSource);
 		private static HookList HookPreKill = AddHook<DelegatePreKill>(p => p.PreKill);
 
+		private static HookList HookCanKill = AddHook<Func<double, int, bool, PlayerDeathReason, bool>>(p => p.CanKill);
+
 		public static bool PreKill(Player player, double damage, int hitDirection, bool pvp, ref bool playSound,
 			ref bool genGore, ref PlayerDeathReason damageSource) {
-			bool flag = true;
+
 			foreach (int index in HookPreKill.arr) {
-				if (!player.modPlayers[index].PreKill(damage, hitDirection, pvp, ref playSound, ref genGore, ref damageSource)) {
-					flag = false;
-				}
+				player.modPlayers[index].PreKill(damage, hitDirection, pvp, ref playSound, ref genGore, ref damageSource);
 			}
-			return flag;
+
+			foreach (int index in HookCanKill.arr) {
+				if (!player.modPlayers[index].CanKill(damage, hitDirection, pvp, damageSource))
+					return false;
+			}
+
+			return true;
 		}
 
 		private static HookList HookKill = AddHook<Action<double, int, bool, PlayerDeathReason>>(p => p.Kill);
@@ -428,14 +440,21 @@ namespace Terraria.ModLoader
 			}
 		}
 
-		private static HookList HookPreItemCheck = AddHook<Func<bool>>(p => p.PreItemCheck);
+		private static HookList HookCanHoldItem = AddHook<Func<bool>>(p => p.CanHoldItem);
+
+		private static HookList HookPreItemCheck = AddHook<Action>(p => p.PreItemCheck);
 
 		public static bool PreItemCheck(Player player) {
-			bool result = true;
 			foreach (int index in HookPreItemCheck.arr) {
-				result &= player.modPlayers[index].PreItemCheck();
+				player.modPlayers[index].PreItemCheck();
 			}
-			return result;
+
+			foreach (int index in HookCanHoldItem.arr) {
+				if (!player.modPlayers[index].CanHoldItem())
+					return false;
+			}
+
+			return true;
 		}
 
 		private static HookList HookPostItemCheck = AddHook<Action>(p => p.PostItemCheck);
